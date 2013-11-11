@@ -1,70 +1,56 @@
 
-
 exports.action = function(data, callback, config, SARAH){
   
   // Store current user
   if (!data.dictation){
     return callback({'tts': "Je ne comprends pas"});
   }
-  var search = data.dictation;
+  var search = data.dictation; 
   
   // Clean question
-  var rgxp = /Sarah recherche (.+) (sur)* Wikipedia/i
+  var rgxp = /Sarah recherche (.+) (sur)* Wikip(é|e)dia/i
   var match = search.match(rgxp);
   if (!match || match.length <= 1){
     return callback({'tts': "Je ne comprends pas"});
   }
   search = match[1];
-
+  
  
   // Perform search
-  var url = 'http://dictionnaire.reverso.net/francais-definition/'+search+'/';
+  query(search, callback);
+}
+
+var re = /^(.*?)[.?!]\s*/
+var rp = /<\/?[^>]+(>|$)/g
+var ex = /^REDIRECT (\w+)\s*/g
+var query = function(search, callback){
+  var url = 'https://fr.wikipedia.org/w/api.php?action=query&prop=extracts&exintro&titles='+search+'&format=json';
   var request = require('request');
-  request({ 'uri' : url }, function (err, response, body){
+  request({ 'uri' : url, 'json' : true }, function (err, response, body){
     
     if (err || response.statusCode != 200) {
       callback({'tts': "L'action a échoué"});
       return;
     }
     
-    var answer = parse(body, search);
-    callback({'tts': clean(answer) });
-  });
-}
-
-/**
- * Parse the HTML of the request
- */
-var parse = function(html, word){
-  var $ = require('cheerio').load(html);
-  var ok = false;
-  
-  $('#TableHTMLResult .ldcomIN').each(function(){
-    var value = $(this).text().trim();
-    var match = matcher(value); 
+    var extract = '';
+    try {
+      extract = getFirst(body.query.pages).extract;
+      extract = extract.replace(rp, "");
+      extract = re.exec(extract)[1];
+    } catch (e){}
     
-    // console.log('['+value+']', 'match=', match, 'ok=', ok);
-    if (ok && !match){ ok = value;   return false; } // Break loop
-    if (match){        ok = value; // Will take next value 
-      if (value.indexOf(word) == 0){ return false; }
+    
+    var redirect = ex.exec(extract); 
+    if (redirect && redirect.length > 0){
+      console.log('<'+redirect[1]+'>');
+      return query(redirect[1], callback);
     }
+    
+    callback({'tts': extract });
   });
-  return ok;
 }
 
-/**
- * Match a given regexp
- */
-var matcher = function(search){
-  var match = search.match(/(nm)|(nf)/i);
-  return match && match.length >= 0;
-}
-
-/**
- * Clean the matching String
- */
-var clean = function(match){
-  if (match.indexOf('1') == 0) match = match.substring(1).trim();
-  match = match.replace(/.*(nm)|(nf)/i,'');
-  return match;
+var getFirst = function(obj){
+  return obj[Object.keys(obj)[0]]
 }
